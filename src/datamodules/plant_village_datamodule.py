@@ -31,6 +31,8 @@ class PlantVillageDatamodule(LightningDataModule):
 
     def __init__(
             self,
+            image_size: int = 256,
+            image_margin: int = 16,
             data_dir: str = "data",
             train_val_test_split: Tuple[float, float, float] = (0.8, 0.1, 0.1),
             batch_size: int = 64,
@@ -53,11 +55,11 @@ class PlantVillageDatamodule(LightningDataModule):
         self.fraction_end = fraction_end
 
         self.transforms = transforms.Compose(
-            [transforms.Resize(230), transforms.CenterCrop(224), transforms.ToTensor()]
+            [transforms.Resize(image_size+image_margin), transforms.CenterCrop(image_size), transforms.ToTensor()]
         )
 
         # self.dims is returned when you call datamodule.size()
-        self.dims = (3, 224, 224)
+        self.dims = (3, image_size, image_size)
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None

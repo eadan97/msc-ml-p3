@@ -7,3 +7,5 @@ fraction_end: False
 train_val_test_split: [0.8, 0.05, 0.05]
 num_workers: 8
 pin_memory: True
+image_size: 256
+image_margin: 16
