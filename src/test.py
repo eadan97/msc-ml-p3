@@ -11,12 +11,13 @@ from pytorch_lightning import (
 )
 from pytorch_lightning.loggers import LightningLoggerBase
 
+from src.models.autoencoder_gen_model import AutoencoderGenModel
 from src.utils import utils
 
 log = utils.get_logger(__name__)
 
 
-def train(config: DictConfig) -> Optional[float]:
+def test(config: DictConfig) -> Optional[float]:
     """Contains training pipeline.
     Instantiates all PyTorch Lightning objects from config.
 
@@ -36,8 +37,9 @@ def train(config: DictConfig) -> Optional[float]:
     datamodule: LightningDataModule = hydra.utils.instantiate(config.datamodule)
 
     # Init Lightning model
-    log.info(f"Instantiating model <{config.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(config.model)
+    # log.info(f"Instantiating model <{config.model._target_}>")
+    # model: LightningModule = hydra.utils.instantiate(config.model)
+    model = AutoencoderGenModel.load_from_checkpoint(config.checkpoint)
 
     # Init Lightning callbacks
     callbacks: List[Callback] = []
@@ -72,14 +74,8 @@ def train(config: DictConfig) -> Optional[float]:
         logger=logger,
     )
 
-    # Train the model
-    log.info("Starting training!")
-    trainer.fit(model=model, datamodule=datamodule)
-
-    # Evaluate model on test set after training
-    if not config.trainer.get("fast_dev_run"):
-        log.info("Starting testing!")
-        trainer.test()
+    log.info("Starting testing!")
+    trainer.test(model=model, datamodule=datamodule)
 
     # Make sure everything closed properly
     log.info("Finalizing!")

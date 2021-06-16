@@ -1,14 +1,19 @@
+import os
 from typing import Optional, Tuple
 
+import numpy as np
 from pytorch_lightning import LightningDataModule
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
-from torchvision.datasets import MNIST
+from sklearn.model_selection import train_test_split
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split, Subset
+from torchvision.datasets import MNIST, ImageFolder
 from torchvision.transforms import transforms
 
 
-class MNISTDataModule(LightningDataModule):
+class PlantVillageDatamodule(LightningDataModule):
     """
-    Example of LightningDataModule for MNIST dataset.
+    LightningDataModule for PlantVillage dataset.
+    Dataset consists of images of plant leaves and background images. Leaves can be healthy or have a disease.
+    Images are RBG 256x256
 
     A DataModule implements 5 key methods:
         - prepare_data (things to do on 1 GPU/TPU, not on every GPU/TPU in distributed mode)
@@ -25,28 +30,34 @@ class MNISTDataModule(LightningDataModule):
     """
 
     def __init__(
-        self,
-        data_dir: str = "data/",
-        train_val_test_split: Tuple[int, int, int] = (55_000, 5_000, 10_000),
-        batch_size: int = 64,
-        num_workers: int = 0,
-        pin_memory: bool = False,
-        **kwargs,
+            self,
+            data_dir: str = "data",
+            train_val_test_split: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+            batch_size: int = 64,
+            num_workers: int = 0,
+            pin_memory: bool = False,
+            fraction_size: float = 1.0,
+            fraction_end: bool = False,
+            **kwargs,
     ):
         super().__init__()
 
-        self.data_dir = data_dir
+        assert np.abs(train_val_test_split[0] + train_val_test_split[1] + train_val_test_split[
+            2] - 1) <= 1e-8, "the splits should add up to 1"
+        self.data_dir = data_dir + "Plant_leave_diseases_dataset_with_augmentation/"
         self.train_val_test_split = train_val_test_split
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.fraction_size = fraction_size
+        self.fraction_end = fraction_end
 
         self.transforms = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+            [transforms.Resize(230), transforms.CenterCrop(224), transforms.ToTensor()]
         )
 
         # self.dims is returned when you call datamodule.size()
-        self.dims = (1, 28, 28)
+        self.dims = (3, 224, 224)
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -54,22 +65,42 @@ class MNISTDataModule(LightningDataModule):
 
     @property
     def num_classes(self) -> int:
-        return 10
-
-    def prepare_data(self):
-        """Download data if needed. This method is called only from a single GPU.
-        Do not use it to assign state (self.x = y)."""
-        MNIST(self.data_dir, train=True, download=True)
-        MNIST(self.data_dir, train=False, download=True)
+        return 39
 
     def setup(self, stage: Optional[str] = None):
         """Load data. Set variables: self.data_train, self.data_val, self.data_test."""
-        trainset = MNIST(self.data_dir, train=True, transform=self.transforms)
-        testset = MNIST(self.data_dir, train=False, transform=self.transforms)
-        dataset = ConcatDataset(datasets=[trainset, testset])
-        self.data_train, self.data_val, self.data_test = random_split(
-            dataset, self.train_val_test_split
-        )
+        dataset = ImageFolder(self.data_dir, transform=self.transforms)
+
+        targets = dataset.targets
+        self.classes = dataset.classes
+        all_idx = np.arange(len(targets))
+        if self.fraction_size < 1:
+            first_idx, second_idx = train_test_split(
+                all_idx,
+                test_size=self.fraction_size,
+                shuffle=True,
+                stratify=targets)
+            if self.fraction_end:
+                all_idx = second_idx
+            else:
+                all_idx = first_idx
+
+        all_targets = [targets[idx] for idx in all_idx]
+        train_idx, test_idx = train_test_split(
+            all_idx,
+            test_size=self.train_val_test_split[1],
+            shuffle=True,
+            stratify=all_targets)
+        targets_test = [targets[idx] for idx in test_idx]
+        test_idx, val_idx = train_test_split(
+            test_idx,
+            test_size=self.train_val_test_split[2] / (1 - self.train_val_test_split[1]),
+            shuffle=True,
+            stratify=targets_test)
+        # Warp into Subsets and DataLoaders
+        self.data_train = Subset(dataset, train_idx)
+        self.data_test = Subset(dataset, test_idx)
+        self.data_val = Subset(dataset, val_idx)
 
     def train_dataloader(self):
         return DataLoader(

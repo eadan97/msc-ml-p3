@@ -1,8 +1,9 @@
-_target_: src.models.autoencoder_model.AutoencoderModel
+_target_: src.models.autoencoder_gen_model.AutoencoderGenModel
 
-input_height: 224
-first_conv: False
-maxpool1: False
-latent_dim: 1024
 lr: 1e-4
 weight_decay: 0.0005
+ngf: 64
+no_dropout: True
+lambda_style: 1.0
+lambda_features: 1.0
+lambda_tv: 0.000001

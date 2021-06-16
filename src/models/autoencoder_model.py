@@ -1,14 +1,21 @@
-from typing import Any, List
+from typing import Any, List, Optional
 
 import torch
+from pl_bolts.models import AE
+from pl_bolts.models.autoencoders.components import ResNetEncoder, ResNetDecoder, DecoderBottleneck, EncoderBottleneck, \
+    EncoderBlock, DecoderBlock
 from pytorch_lightning import LightningModule
+from pytorch_lightning.utilities.types import STEP_OUTPUT, EPOCH_OUTPUT
 from torch import nn
 from torchmetrics.classification.accuracy import Accuracy
+from torchvision.models import resnext101_32x8d
 
+from src.callbacks.tensorboardx_callbacks import get_tensorboard_logger
+from src.losses.perception_loss import PerceptionLoss
 from src.models.modules.simple_dense_net import SimpleDenseNet
 
 
-class AutoencoderModel(LightningModule):
+class AutoencoderModel(AE):
     """
     Example of LightningModule for MNIST classification.
 
@@ -28,10 +35,12 @@ class AutoencoderModel(LightningModule):
             input_height: int,
             first_conv: bool = False,
             maxpool1: bool = False,
-            enc_out_dim: int = 512,
             latent_dim: int = 256,
             lr: float = 1e-4,
-            weight_decay: float = 0.0005,
+            enc_type: str = 'resnet18',
+            enc_out_dim: int = 512,
+            lambda_features: float = 1.0,
+            lambda_style: float = 1.0,
             **kwargs,
     ):
         """
@@ -46,31 +55,16 @@ class AutoencoderModel(LightningModule):
             lr: learning rate for Adam
         """
 
-        super(AutoencoderModel, self).__init__()
+        super(AutoencoderModel, self).__init__(input_height, first_conv=first_conv, maxpool1=maxpool1,
+                                               latent_dim=latent_dim, lr=lr, enc_type=enc_type, enc_out_dim=enc_out_dim)
 
         self.save_hyperparameters()
-
-        self.enc_out_dim = enc_out_dim
-        self.latent_dim = latent_dim
-        self.input_height = input_height
-
-        self.encoder = valid_encoders[enc_type]['enc'](first_conv, maxpool1)
-        self.decoder = valid_encoders[enc_type]['dec'](self.latent_dim, self.input_height, first_conv, maxpool1)
-
-        self.fc = nn.Linear(self.enc_out_dim, self.latent_dim)
-        # loss function
-        self.criterion = torch.nn.MSELoss(reduction='mean')
-        # use separate metric instance for train, val and test step
-        # to ensure a proper reduction over the epoch
-        self.train_accuracy = Accuracy()
-        self.val_accuracy = Accuracy()
-        self.test_accuracy = Accuracy()
+        self.perce_criterion = PerceptionLoss()
 
     def forward(self, x):
         feats = self.encoder(x)
         z = self.fc(feats)
-        x_hat = self.decoder(z)
-        return x_hat
+        return z
 
     def step(self, batch, batch_idx):
         x, y = batch
@@ -79,40 +73,43 @@ class AutoencoderModel(LightningModule):
         z = self.fc(feats)
         x_hat = self.decoder(z)
 
-        loss = self.criterion(x_hat, x)
+        loss = 0.0
+        if self.hparams.lambda_features > 0 or self.hparams.lambda_style > 0:
+            self.perce_criterion.set_source_image(x_hat)
+            self.perce_criterion.set_target_image(x)
+        if self.hparams.lambda_features > 0:
+            loss += self.hparams.lambda_features * self.perce_criterion.get_feature_loss()
+        if self.hparams.lambda_style > 0:
+            loss += self.hparams.lambda_style * self.perce_criterion.get_style_loss()
+        return loss, {"loss": loss}
 
-        return loss
+    def test_step(self, batch, batch_idx):
+        x, y = batch
 
-    def training_step(self, batch, batch_idx):
-        loss = self.step(batch, batch_idx)
-        # log train metrics
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
-        # self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
-        return loss
+        feats = self.encoder(x)
+        z = self.fc(feats)
+        x_hat = self.decoder(z)
 
-    def training_epoch_end(self, outputs: List[Any]):
-        pass
+        return {'latent_vector': z.detach(), 'generated_image': x_hat.detach(), 'label': y.detach()}
 
-    def validation_step(self, batch, batch_idx):
-        loss = self.step(batch, batch_idx)
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
-        return loss
+    def test_epoch_end(self, outputs):
+        logger = get_tensorboard_logger(trainer=self.trainer)
+        experiment = logger.experiment
 
-    def validation_epoch_end(self, outputs: List[Any]):
-        pass
+        test_labels = torch.cat([item['label'] for item in outputs])[:500]
+        test_imgs = torch.cat([item['generated_image'] for item in outputs])[:500]
+        test_vectors = torch.cat([item['latent_vector'] for item in outputs])[:500]
+        string_labels = [self.trainer.datamodule.classes[i] for i in test_labels]
+        # run the batch through the network
 
-    def test_step(self, batch: Any, batch_idx: int):
-        loss = self.step(batch, batch_idx)
-
-        # log test metrics
-        self.log("test/loss", loss, on_step=False, on_epoch=True)
-        return loss
-
-    def test_epoch_end(self, outputs: List[Any]):
-        pass
+        experiment.add_images("generated_images", test_imgs)
+        experiment.add_embedding(test_vectors, string_labels, test_imgs)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+
+    def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
+        optimizer.zero_grad(set_to_none=True)
 
     # @staticmethod
     # def add_model_specific_args(parent_parser):
@@ -136,4 +133,3 @@ class AutoencoderModel(LightningModule):
     #     parser.add_argument("--data_dir", type=str, default=".")
     #
     #     return parser
-

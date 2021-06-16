@@ -5,7 +5,7 @@
 
 defaults:
   - override /trainer: minimal.yaml # choose trainer from 'configs/trainer/'
-  - override /model: autoencoder_model.yaml
+  - override /model: autoencoder_eadan_model.yaml
   - override /datamodule: plant_village_datamodule.yaml
   - override /callbacks: default.yaml
   - override /logger: tensorboard.yaml
@@ -20,7 +20,7 @@ trainer:
   precision: 16
   benchmark: True
   min_epochs: 1
-  max_epochs: 4
+  max_epochs: 5
 #  limit_train_batches: 0.05
 
 callbacks:

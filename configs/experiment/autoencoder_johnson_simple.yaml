@@ -5,7 +5,7 @@
 
 defaults:
   - override /trainer: minimal.yaml # choose trainer from 'configs/trainer/'
-  - override /model: autoencoder_model.yaml
+  - override /model: autoencoder_johnson_model.yaml
   - override /datamodule: plant_village_datamodule.yaml
   - override /callbacks: default.yaml
   - override /logger: tensorboard.yaml
@@ -20,7 +20,7 @@ trainer:
   precision: 16
   benchmark: True
   min_epochs: 1
-  max_epochs: 10
+  max_epochs: 4
 #  limit_train_batches: 0.05
 
 callbacks:
@@ -28,11 +28,12 @@ callbacks:
     _target_: src.callbacks.tensorboardx_callbacks.LogLatentVectorAndImageAutoencoder
   model_checkpoint:
     monitor: "val_loss"
-    mode: "max"
+    mode: "min"
   early_stopping:
     monitor: "val_loss"
-    mode: "max"
+    mode: "min"
 
 datamodule:
-  batch_size: 8
+  batch_size: 4
+  num_workers: 5
   train_val_test_split: [0.8, 0.1, 0.1]

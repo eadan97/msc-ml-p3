@@ -10,9 +10,10 @@ from src.callbacks.tensorboardx_callbacks import get_tensorboard_logger
 from src.losses.perception_loss import PerceptionLoss
 from src.models.modules.resnet_generator import ResnetGenerator, ResnetEncoder, ResnetDecoder, ResnetMiddle
 from src.models.modules.simple_dense_net import SimpleDenseNet
+from src.models.modules.unet import DoubleConv, Down, Up
 
 
-class AutoencoderGenModel(LightningModule):
+class AutoencoderEadanModel(LightningModule):
     """
     Example of LightningModule for MNIST classification.
 
@@ -29,10 +30,12 @@ class AutoencoderGenModel(LightningModule):
 
     def __init__(
             self,
+            input_height: int = 224,
             ngf: int = 64,
             lr: float = 1e-4,
             weight_decay: float = 0.0005,
-            no_dropout: bool = True,
+            layers: int = 6,
+            latent_dim: int = 256,
             lambda_style: float = 1.0,
             lambda_features: float = 1.0,
             lambda_tv: float = 0.000001,
@@ -50,91 +53,61 @@ class AutoencoderGenModel(LightningModule):
             lr: learning rate for Adam
         """
 
-        super(AutoencoderGenModel, self).__init__()
+        super(AutoencoderEadanModel, self).__init__()
 
         self.save_hyperparameters()
         self.lambda_style = lambda_style
         self.lambda_features = lambda_features
         self.lambda_tv = lambda_tv
         self.ngf = ngf
-
-        self.encoder = ResnetEncoder(3, 3, self.ngf,
-                                     norm_layer=functools.partial(nn.InstanceNorm2d, affine=False,
-                                                                  track_running_stats=False),
-                                     use_dropout=not no_dropout, n_blocks=9)
-        self.decoder = nn.Sequential(
-            nn.Unflatten(1, (256, 1, 1)),
-            nn.ConvTranspose2d(256, 512, kernel_size=1, stride=1, padding=0, output_padding=0, bias=False),#1
-            nn.InstanceNorm2d(512),
-            nn.ReLU(),
-            nn.ConvTranspose2d(512, 1024, kernel_size=1, stride=1, padding=0, output_padding=0, bias=False),#1
-            nn.InstanceNorm2d(1024),
-            nn.ReLU(),
-            nn.ConvTranspose2d(1024, 1024, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),#2
-            nn.InstanceNorm2d(1024),
-            nn.ReLU(),
-            nn.ConvTranspose2d(1024, 1024, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),#4
-            nn.InstanceNorm2d(1024),
-            nn.ReLU(),
-            nn.ConvTranspose2d(1024, 512, kernel_size=3, stride=2, padding=1, output_padding=0, bias=False),#7
-            nn.InstanceNorm2d(512),
-            nn.ReLU(),
-            nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),#14
-            nn.InstanceNorm2d(512),
-            nn.ReLU(),
-            nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),#28
-            nn.InstanceNorm2d(256),
-            nn.ReLU(),
-            nn.ConvTranspose2d(256, 256, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),#56
-            nn.InstanceNorm2d(256),
-            nn.ReLU(),
-            ResnetDecoder(3, 3, 64,
-                          norm_layer=functools.partial(nn.InstanceNorm2d, affine=False,
-                                                       track_running_stats=False),
-                          use_dropout=not no_dropout, n_blocks=9))
+        self.last_conv_size = (input_height // 2 ** (layers + 1))
+        encoder_layers: list = [nn.Conv2d(3, ngf, kernel_size=4, stride=2, padding=1, bias=True)]
+        features = ngf
+        for _ in range(layers - 1):
+            encoder_layers = encoder_layers + [
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(features, features * 2, kernel_size=4, stride=2, padding=1, bias=True),
+                nn.InstanceNorm2d(features * 2)
+            ]
+            features *= 2
+        encoder_layers = encoder_layers + [nn.LeakyReLU(0.2, True),
+                                           nn.Conv2d(features, features, kernel_size=4, stride=2, padding=1,
+                                                     bias=True)]
 
         self.fc = nn.Sequential(
-
-            nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.InstanceNorm2d(256),
-            nn.ReLU(),
-            nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.InstanceNorm2d(512),
-            nn.ReLU(),
-            nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=1, bias=False),  # sale 7
-            nn.InstanceNorm2d(512),
-            nn.ReLU(),
-            nn.Conv2d(512, 1024, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.InstanceNorm2d(1024),
-            nn.ReLU(),
-            nn.Conv2d(1024, 1024, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.InstanceNorm2d(1024),
-            nn.ReLU(),
-            nn.Conv2d(1024, 1024, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.InstanceNorm2d(1024),
-            nn.ReLU(),
-            ResnetMiddle(3, 3, 256,
-                         norm_layer=functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False),
-                         use_dropout=not no_dropout, n_blocks=9, padding_type='zero'),
-            nn.Conv2d(1024, 512, kernel_size=1, stride=1, bias=False),
-            nn.InstanceNorm2d(512),
-            nn.ReLU(),
-            nn.Conv2d(512, 256, kernel_size=1, stride=1, bias=False),
-            nn.InstanceNorm2d(256),
-            nn.ReLU(),
-            nn.Flatten()
+            nn.Flatten(),
+            nn.Linear(features * self.last_conv_size ** 2, latent_dim),
+            nn.ReLU(True)
         )
+        decoder_layers: list = [
+            nn.Linear(latent_dim, features * self.last_conv_size ** 2),
+            nn.Unflatten(1, (features, self.last_conv_size, self.last_conv_size)),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(features, features, kernel_size=4, stride=2, padding=1,
+                               bias=True),
+            nn.InstanceNorm2d(3)]
+        for _ in range(layers - 1):
+            decoder_layers = decoder_layers + [
+                nn.ReLU(True),
+                nn.ConvTranspose2d(features, features // 2, kernel_size=4, stride=2, padding=1, bias=True),
+                nn.InstanceNorm2d(3)
+            ]
+            features //= 2
+        decoder_layers = decoder_layers + [nn.ReLU(True),
+                                           nn.ConvTranspose2d(features, 3, kernel_size=4, stride=2, padding=1),
+                                           nn.Sigmoid()]
 
-        # self.encoder.to(device=self.device)
-        # self.decoder.to(device=self.device)
-        # self.fc.to(device=self.device)
+        self.encoder = nn.Sequential(*encoder_layers)
+        self.decoder = nn.Sequential(*decoder_layers)
+
         # loss function
         self.perce_criterion = PerceptionLoss()
+        self.mse_criterion = nn.MSELoss()
         # use separate metric instance for train, val and test step
         # to ensure a proper reduction over the epoch
-        self.train_accuracy = Accuracy()
-        self.val_accuracy = Accuracy()
-        self.test_accuracy = Accuracy()
+        # self.train_accuracy = Accuracy()
+        # self.val_accuracy = Accuracy()
+        # self.test_accuracy = Accuracy()
         # print(dict(self.named_modules()))
 
     def forward(self, x):
@@ -149,10 +122,17 @@ class AutoencoderGenModel(LightningModule):
         z = self.fc(feats)
         x_hat = self.decoder(z)
 
-        self.perce_criterion.set_source_image(x_hat)
-        self.perce_criterion.set_target_image(x)
-        # We are using only features since we are not doing style transfer
-        loss = self.lambda_features * self.perce_criterion.get_feature_loss()
+        loss = 0.0
+
+        if self.lambda_features > 0 or self.lambda_style > 0:
+            self.perce_criterion.set_source_image(x_hat)
+            self.perce_criterion.set_target_image(x)
+        if self.lambda_features > 0:
+            loss += self.lambda_features * self.perce_criterion.get_feature_loss()
+        if self.lambda_style > 0:
+            loss += self.lambda_style * self.perce_criterion.get_style_loss()
+        if self.lambda_tv > 0:
+            loss += self.lambda_tv * self.mse_criterion(x, x_hat)
 
         return loss
 

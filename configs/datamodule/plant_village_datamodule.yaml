@@ -1,7 +1,9 @@
-_target_: src.datamodules.mnist_datamodule.MNISTDataModule
+_target_: src.datamodules.plant_village_datamodule.PlantVillageDatamodule
 
 data_dir: ${data_dir} # data_dir is specified in config.yaml
 batch_size: 64
-train_val_test_split: [55_000, 5_000, 10_000]
-num_workers: 0
-pin_memory: False
+fraction_size: 1.0
+fraction_end: False
+train_val_test_split: [0.8, 0.05, 0.05]
+num_workers: 8
+pin_memory: True

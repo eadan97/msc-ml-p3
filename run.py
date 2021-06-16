@@ -4,6 +4,8 @@ from omegaconf import DictConfig
 
 # load environment variables from `.env` file if it exists
 # recursively searches for `.env` in all folders starting from work dir
+from src.test import test
+
 dotenv.load_dotenv(override=True)
 
 
@@ -27,6 +29,8 @@ def main(config: DictConfig):
     if config.get("print_config"):
         utils.print_config(config, resolve=True)
 
+    if "test_only" in config:
+        return test(config)
     # Train model
     return train(config)
 
