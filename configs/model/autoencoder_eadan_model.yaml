@@ -6,6 +6,6 @@ lr: 1e-3
 weight_decay: 0
 layers: 5
 latent_dim: 256
-lambda_style: 1.0
+lambda_style: 0
 lambda_features: 1.0
-lambda_tv: 0
+lambda_tv: 1e-6
