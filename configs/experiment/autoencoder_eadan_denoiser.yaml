@@ -1,0 +1,43 @@
+# @package _global_
+
+# to execute this experiment run:
+# python run.py experiment=example_simple.yaml
+
+defaults:
+  - override /trainer: minimal.yaml # choose trainer from 'configs/trainer/'
+  - override /model: autoencoder_eadan_model.yaml
+  - override /datamodule: plant_village_datamodule.yaml
+  - override /callbacks: default.yaml
+  - override /logger: tensorboard.yaml
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+seed: 12345
+
+model:
+  noise_amount: 0.2
+  latent_dim: 2048
+
+trainer:
+  gpus: 1
+  precision: 16
+  benchmark: True
+  min_epochs: 1
+  max_epochs: 40
+#  limit_train_batches: 0.05
+
+callbacks:
+  autoencoder_log:
+    _target_: src.callbacks.tensorboardx_callbacks.LogLatentVectorAndImageAutoencoder
+  model_checkpoint:
+    monitor: "val_loss"
+    mode: "min"
+  early_stopping:
+    monitor: "val_loss"
+    mode: "min"
+
+datamodule:
+  batch_size: 8
+  fraction_size: 0.8
+  train_val_test_split: [0.85, 0.075, 0.075]

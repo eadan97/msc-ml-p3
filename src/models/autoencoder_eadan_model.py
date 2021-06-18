@@ -11,6 +11,7 @@ from src.losses.perception_loss import PerceptionLoss
 from src.models.modules.resnet_generator import ResnetGenerator, ResnetEncoder, ResnetDecoder, ResnetMiddle
 from src.models.modules.simple_dense_net import SimpleDenseNet
 from src.models.modules.unet import DoubleConv, Down, Up
+from src.transforms.salt_and_pepper import SaltAndPepper
 
 
 class AutoencoderEadanModel(LightningModule):
@@ -39,6 +40,7 @@ class AutoencoderEadanModel(LightningModule):
             lambda_style: float = 1.0,
             lambda_features: float = 1.0,
             lambda_tv: float = 0.000001,
+            noise_amount: float = 0.0,
             **kwargs,
     ):
         """
@@ -103,6 +105,7 @@ class AutoencoderEadanModel(LightningModule):
         # loss function
         self.perce_criterion = PerceptionLoss()
         self.mse_criterion = nn.MSELoss()
+        self.noiser = SaltAndPepper(quantity=noise_amount)
         # use separate metric instance for train, val and test step
         # to ensure a proper reduction over the epoch
         # self.train_accuracy = Accuracy()
@@ -118,7 +121,11 @@ class AutoencoderEadanModel(LightningModule):
     def step(self, batch, batch_idx):
         x, y = batch
 
-        feats = self.encoder(x)
+        if self.hparams.noise_amount > 0:
+            noisy_img = self.noiser(x)
+            feats = self.encoder(noisy_img)
+        else:
+            feats = self.encoder(x)
         z = self.fc(feats)
         x_hat = self.decoder(z)
 

@@ -2,10 +2,11 @@ _target_: src.models.autoencoder_eadan_model.AutoencoderEadanModel
 
 input_height: 256
 ngf: 64
-lr: 1e-3
+lr: 1e-4
 weight_decay: 0
 layers: 5
 latent_dim: 256
 lambda_style: 0
 lambda_features: 1.0
 lambda_tv: 1e-6
+noise_amount: 0
