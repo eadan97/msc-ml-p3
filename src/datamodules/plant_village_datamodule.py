@@ -34,7 +34,7 @@ class PlantVillageDatamodule(LightningDataModule):
             image_size: int = 256,
             image_margin: int = 16,
             data_dir: str = "data",
-            train_val_test_split: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+            train_val_test_split: Tuple = (0.8, 0.1, 0.1),
             batch_size: int = 64,
             num_workers: int = 0,
             pin_memory: bool = False,
@@ -43,9 +43,13 @@ class PlantVillageDatamodule(LightningDataModule):
             **kwargs,
     ):
         super().__init__()
+        assert len(train_val_test_split) == 2 or len(
+            train_val_test_split) == 3, "there should be only two or three splits"
+        self.share_val_test = len(train_val_test_split) == 2
+        assert np.abs(train_val_test_split[0] + train_val_test_split[1] - 1) <= 1e-8 if self.share_val_test else np.abs(
+            train_val_test_split[0] + train_val_test_split[1] + train_val_test_split[
+                2] - 1) <= 1e-8, "the splits should add up to 1"
 
-        assert np.abs(train_val_test_split[0] + train_val_test_split[1] + train_val_test_split[
-            2] - 1) <= 1e-8, "the splits should add up to 1"
         self.data_dir = data_dir + "Plant_leave_diseases_dataset_with_augmentation/"
         self.train_val_test_split = train_val_test_split
         self.batch_size = batch_size
@@ -55,7 +59,7 @@ class PlantVillageDatamodule(LightningDataModule):
         self.fraction_end = fraction_end
 
         self.transforms = transforms.Compose(
-            [transforms.Resize(image_size+image_margin), transforms.CenterCrop(image_size), transforms.ToTensor()]
+            [transforms.Resize(image_size + image_margin), transforms.CenterCrop(image_size), transforms.ToTensor()]
         )
 
         # self.dims is returned when you call datamodule.size()
@@ -79,7 +83,7 @@ class PlantVillageDatamodule(LightningDataModule):
         if self.fraction_size < 1:
             first_idx, second_idx = train_test_split(
                 all_idx,
-                test_size=self.fraction_size,
+                test_size=self.fraction_size if self.fraction_end else 1.0 - self.fraction_size,
                 shuffle=True,
                 stratify=targets)
             if self.fraction_end:
@@ -93,13 +97,17 @@ class PlantVillageDatamodule(LightningDataModule):
             test_size=self.train_val_test_split[1],
             shuffle=True,
             stratify=all_targets)
-        targets_test = [targets[idx] for idx in test_idx]
-        test_idx, val_idx = train_test_split(
-            test_idx,
-            test_size=self.train_val_test_split[2] / (1 - self.train_val_test_split[1]),
-            shuffle=True,
-            stratify=targets_test)
+        if not self.share_val_test:
+            targets_test = [targets[idx] for idx in test_idx]
+            test_idx, val_idx = train_test_split(
+                test_idx,
+                test_size=self.train_val_test_split[2] / (1 - self.train_val_test_split[1]),
+                shuffle=True,
+                stratify=targets_test)
+        else:
+            val_idx = test_idx
         # Warp into Subsets and DataLoaders
+        print(len(train_idx), len(test_idx), len(val_idx))
         self.data_train = Subset(dataset, train_idx)
         self.data_test = Subset(dataset, test_idx)
         self.data_val = Subset(dataset, val_idx)

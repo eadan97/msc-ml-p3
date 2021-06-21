@@ -5,7 +5,7 @@
 
 defaults:
   - override /trainer: minimal.yaml # choose trainer from 'configs/trainer/'
-  - override /model: autoencoder_eadan_model.yaml
+  - override /model: classifier_with_ae.yaml
   - override /datamodule: plant_village_datamodule.yaml
   - override /callbacks: default.yaml
   - override /logger: tensorboard.yaml
@@ -16,20 +16,20 @@ defaults:
 seed: 12345
 
 model:
-  noise_amount: 0.2
-  latent_dim: 2048
+#  checkpoint_dir: "C:\\Users\\eadan\\Documents\\Repositories\\msc-ml-p3\\logs\\runs\\2021-06-19\\16-57-31\\checkpoints\\last.ckpt"
+  checkpoint_dir: "C:\\Users\\eadan\\Documents\\Repositories\\msc-ml-p3\\logs\\runs\\2021-06-20\\09-13-05\\checkpoints\\last.ckpt"
+  freeze_autoencoder: True
+  num_neurons: 128
 
 trainer:
   gpus: 1
   precision: 16
   benchmark: True
   min_epochs: 1
-  max_epochs: 10
+  max_epochs: 40
 #  limit_train_batches: 0.05
 
 callbacks:
-  autoencoder_log:
-    _target_: src.callbacks.tensorboardx_callbacks.LogLatentVectorAndImageAutoencoder
   model_checkpoint:
     monitor: "val_loss"
     mode: "min"
@@ -38,6 +38,7 @@ callbacks:
     mode: "min"
 
 datamodule:
+  fraction_size: 0.2
+  fraction_end: True
   batch_size: 8
-  fraction_size: 0.8
-  train_val_test_split: [0.9, 0.1]
+  train_val_test_split: [0.8, 0.2]
