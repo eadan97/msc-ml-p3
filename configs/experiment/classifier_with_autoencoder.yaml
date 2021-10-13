@@ -17,7 +17,8 @@ seed: 12345
 
 model:
 #  checkpoint_dir: "C:\\Users\\eadan\\Documents\\Repositories\\msc-ml-p3\\logs\\runs\\2021-06-19\\16-57-31\\checkpoints\\last.ckpt"
-  checkpoint_dir: "C:\\Users\\eadan\\Documents\\Repositories\\msc-ml-p3\\logs\\runs\\2021-06-20\\09-13-05\\checkpoints\\last.ckpt"
+#  checkpoint_dir: "C:\\Users\\eadan\\Documents\\Repositories\\msc-ml-p3\\logs\\runs\\2021-06-20\\09-13-05\\checkpoints\\last.ckpt"
+  checkpoint_dir: "C:\\Users\\eadan\\Documents\\Repositories\\msc-ml-p3\\logs\\runs\\2021-06-20\\00-03-18\\checkpoints\\last.ckpt"
   freeze_autoencoder: True
   num_neurons: 128
 
